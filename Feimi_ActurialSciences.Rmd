@@ -1,0 +1,449 @@
+---
+title: "ActurialSciences_project"
+author: "Najad Feimi"
+date: "2023-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The data that I am working with is Auto Insurance Claims. It is a dataset of 40 columns where information about the insured person is gathered. This dataset is created to predict the Insurance Fraud which is a huge problem in the industry, but I am going to use it to predict the total claim. Most of the columns in the dataset, which I presented as a dataframe below are comprehensive but I would like to pay a bit attention to some field terms which may not be comprehensive by everyone. 
+
+Some of these terms are: 1. Policy CSL, 2. Policy Deductable, Policy Annual Premium, umbrella limit, Total Claim Amount.
+
+These terms also are some of the most important in the dataframe, therefore it would be beneficial to explain them.
+
+1. Combined single limit (CSL) is a type of liability insurance coverage that combines the limits for two or more types of liability coverage into one overall limit. The limit applies to the total amount of damages for all claims combined, rather than having separate limits for each type of coverage.
+
+The numbers in the format shown before of CSL limit typically refers to two separate liability limits: The first number in the limit is the limit for bodily injury liability and the second number is the limit for property damage liability.
+
+2. Policy Deductable is a set amount that the policyholder must pay out of pocket before their insurance coverage begins to pay for covered losses. The policy deductible applies to each covered claim, and the amount of the deductible can vary depending on the type of policy and the specific coverage.
+
+3. An annual premium is the amount of money that an individual or organization is required to pay for an insurance policy on an annual basis. The annual premium is determined by a variety of factors, including the type of coverage, the amount of coverage, the level of risk, and the insurance company's underwriting practices.
+
+4. An umbrella limit is a type of insurance coverage that provides an additional layer of protection beyond the limits of a primary policy. 
+
+5. Total claim amount which also is going to serve as my target variable is the summation of injury claim, property claim and vehicle claim. A claim amount refers to the amount of money that an individual or organization is seeking to recover from an insurance policy as a result of a covered loss.
+
+I am going to use the variables to predict this amount.
+
+```{r}
+Auto_claims <- read.csv("/home/najada/Documents/MADS/Semester 3/Acturial_sciences/archive (2)/insurance_claims.csv", sep = ",")
+head(Auto_claims )
+```
+
+
+## Preliminary analysis of the data
+
+Let's focus to understand the data as good as we can and do the necessary transformations in order to make a model as accurate as possible.
+
+First thing first we check for duplicates. The identifying column in the dataframe is policy_number therefore we use this column to check for duplicates.
+
+```{r pressure, echo=FALSE}
+#Checking for the identifying column in this df
+anyDuplicated(Auto_claims$policy_number)
+#Since there is an identical number for each row here, I will take this column as identification of claims
+```
+Now we start exploring the data to undersand what we have to do.
+
+Firstly checking the data types of each column.
+```{r}
+str(Auto_claims)
+```
+
+At the display of the dataset we see a lot of values that are written as "?". We replace the question mark with NA in order to deal with them as nan values. 
+
+```{r}
+Auto_claims[Auto_claims == "?"] <- NA
+```
+
+We check and the output and the values have been replaced as needed.
+
+```{r}
+str(Auto_claims)
+```
+Now we need to deal with these missing values so let's start working on them.
+
+First I cound them.
+
+```{r}
+sum(is.na(Auto_claims))
+```
+Then I check the missing values for each column. 
+
+```{r}
+apply(is.na(Auto_claims), 2, sum)
+```
+For the last column we can see that it has 1000 NA values, the dataframe has also 1000 rows which means that all the values from this column are NA, therefore this column is all empty and we do not need it. I've decided to delete this column.
+
+```{r}
+Auto_claims <- subset(Auto_claims, select = -X_c39)
+```
+
+```{r}
+library(Amelia)
+missmap(Auto_claims)
+```
+
+According to the output of the code and the plot there are 3 columns with missing values: "police_report_available", "collision_type" and "property_damage".
+
+Checking each column, what it represents, its type and values we can decide on how we want to deal with these values. 
+
+```{r}
+unique(Auto_claims$police_report_available)
+unique(Auto_claims$property_damage)
+unique(Auto_claims$collision_type)
+unique(Auto_claims$auto_year)
+```
+Now we can see what distinct values we have for every column with missing values in order to choose correctly the value we will use to impute.
+
+There are several ways that we can deal with missing values. I will deal differently with each one of them.
+Firstly, what does it tell us that **police reports** are not available? It means that 1. they were not reported at all 2. they were missed somehow. Reports usually are not just saved in physical form but they are saved in computers too and in different servers, therefore the chance that almost 1/3 of them are missing is low. In addition, as we can check at the output of the summary, the years of our claims are from 1995-2015, therefore it is possible that they were saved in a more sophisticated way. This makes me think that these claims were not reported at all. For this reason I have the right to impute it with "NO" at the missing values. But just so that I am 100% correct and not based too much in supositions, I will impute it with a new category called "MISSING".
+
+Secondly, I would reason similarily to the previous case about property demage. If there were property demage, then there should have been reports. This time I will fill the missing values with "NO"
+
+Lastly, there is **the collision type**. Here the reasoning is quite difficult because at the first sight we have no idea what the collision might have been. Therefore the first idea coming to mind is to fill it with the mode, the most common value of the column. But I chose to go down the hard road. My idea was to inspect two columns: Collision type and incident type which seems to be related because one describes the type of incident and the other more specifically, the type of collisions which is a subgroup of incidents. 
+
+As seen below, I printed the values of incident_type where collision type is NA and they are all not collisions. For this reason, I think the right thing to do here is to add another value with the name : not collision
+
+```{r}
+print(Auto_claims[is.na(Auto_claims$collision_type), "incident_type"])
+```
+Double checking if parked car means something related to collisions because I was not sure.
+
+```{r}
+print(Auto_claims[which(Auto_claims$incident_type == "Parked Car"), "collision_type"])
+```
+
+Now we replace the values as we decided: 
+
+
+```{r}
+Auto_claims$police_report_available[is.na(Auto_claims$police_report_available)] <- "MISSING"
+```
+
+```{r}
+Auto_claims$property_damage[is.na(Auto_claims$property_damage)] <- "NO"
+```
+
+```{r}
+Auto_claims$collision_type[is.na(Auto_claims$collision_type)] <- "Not collision"
+```
+
+I check the values one more time. 
+
+```{r}
+unique(Auto_claims$police_report_available)
+unique(Auto_claims$property_damage)
+unique(Auto_claims$collision_type)
+```
+
+```{r}
+apply(is.na(Auto_claims), 2, sum) #Double-checking the missing values, all 0 now, the replacement was successful
+```
+Next, I have chosen to reduce the dataframe size by removing the columns that are not useful for the prediction. 
+How to chose them? 
+
+I also check the unique values for each column, we can see that some values have a lot of categories inside which cannot be processed when it comes to making a decision, also some data about the insured person is not important when it comes to modelling. I will remove those as well.
+
+```{r}
+uniq_counts <- sapply(Auto_claims, function(x) length(unique(x)))
+print(uniq_counts)
+```
+
+```{r}
+library(dplyr)
+Auto_claims <- select(Auto_claims,-c('policy_number','policy_bind_date', 'incident_location'))
+```
+
+Now I double check and I notice that the number of columns has reduced and it is 27 columns.
+
+```{r}
+head(Auto_claims)
+```
+
+Now it is time to do some sanity checks. 
+
+First, "total claim amount" should be the sum of "injury_claim","property_claim","vehicle_claim"
+
+Let's check this.
+
+```{r}
+result <- all(Auto_claims$total_claim_amount == Auto_claims$injury_claim + Auto_claims$property_claim + Auto_claims$vehicle_claim)
+result
+```
+Also there are some values that have no meaning if they are negative so let's check this.
+
+cat("rows where 'months_as_customer' is less than 0: ", nrow(Auto_claims[Auto_claims$months_as_customer < 0, ]))
+
+```{r}
+
+cat("\nrows where 'age' is less than 0: ", nrow(Auto_claims[Auto_claims$age < 0,]))
+
+cat("\nrows where 'policy_annual_premium' is less than 0:", nrow(Auto_claims[Auto_claims$policy_annual_premium < 0,]))
+
+cat("\nrows where 'total_claim_amount' is less than 0: ", nrow(Auto_claims[Auto_claims$total_claim_amount < 0,]))
+
+cat("\nrows where 'umbrella_limit' is less than 0: ", nrow(Auto_claims[Auto_claims$umbrella_limit < 0,]))
+
+cat("\nrows where 'capital.gains is less than 0: ", nrow(Auto_claims[Auto_claims$capital.gains < 0,]))
+
+cat("\nrows where 'number of vehicles involved' is less than 0: ", nrow(Auto_claims[Auto_claims$number_of_vehicles_involved < 0,]))
+
+cat("\nrows where 'injury_claim' is less than 0: ", nrow(Auto_claims[Auto_claims$injury_claim < 0,]))
+
+cat("\nrows where 'property_claim' is less than 0: ", nrow(Auto_claims[Auto_claims$property_claim < 0,]))
+
+cat("\nrows where 'vehicle_claim' is less than 0: ", nrow(Auto_claims[Auto_claims$vehicle_claim < 0,]))
+
+
+```
+
+We see that we have one anomaly at umbrella limit. The value is less than 0 when it should not be. Let's print that value and check on how we can fix this because the existence of anomalies can harm our model later on.
+
+```{r}
+subset_df <- subset(Auto_claims, Auto_claims$umbrella_limit <0)
+subset_df
+```
+
+As seen, the value of umbrella_limit is -1000000. Reasoning is needed again on how to deal with this value. First of all, we ca just drop the row, but from our knowledge as data scientists this is a bad approach as we lose information. 
+
+My approach is that since we have only one negative value, the minus can be a mistype, therefore the value can be just transformed to positive and we can still include this row as well.
+
+I also check one more time the description of this column. If the value would be too large after converted to positive maybe it would still be an outlier but 1000000 is close to the mean, therefore I decide to keep this value as postive.
+
+```{r}
+summary(Auto_claims$umbrella_limit)
+```
+```{r}
+library(dplyr)
+Auto_claims<- Auto_claims %>% mutate(umbrella_limit = abs(umbrella_limit))
+
+#Double-checking for negative values
+cat("\nrows where 'umbrella_limit' is less than 0: ", nrow(Auto_claims[Auto_claims$umbrella_limit < 0,]))
+```
+
+The next step is dealing with categorical values. Let's check which values are categorical. 
+
+```{r}
+library(dplyr)
+cat_df <- Auto_claims %>% select_if(is.character)
+cat_df
+```
+
+To deal correctly with these values I primarly thought of using dummies. If we just convert them to numbers, assign a number from 1 and inwards depending on their order we might face a non-wanted hierarchical relation between the values. Sometimes by the model is taken like the one that has lower values are more important or there is a relation between 1 and 2 since they are two numbers closed together.
+
+Using dummies, it will create a new dataframe where each column is one of the unique values of the categorical variable, and each row is a 1 or 0 indicating whether that row has the unique value.
+
+The drawback of this method is that now we have too many columns and the dataset is quite bigger and it might take more time to run the model and also I tried it and it did not work properly, therefore since R offers as.factors, I will use this method. 
+
+```{r}
+library(dplyr)
+Auto_claims <- Auto_claims %>% mutate_if(is.character, as.factor)
+str(Auto_claims)
+```
+An important part is also to check for outliers. 
+First we apply the command summary to check the statistical data of our columns. There are several functions on how we can check for outliers too. 
+
+In the output below we can focus on the variables which seem a bit abnormal on the first sight. Here, I would like to make a remark. We should not evaluate these values only statistically, but we should be cautious of their meaning in the field of insurance. From the first sight, these values seem to have abnormal values: policy_annual_premium, umbrella_limit, capital.gains, 
+
+```{r}
+summary(Auto_claims)
+```
+I decided to use Z-score to check these columns individually. Z-score is a measure of how many standard deviations a data point is from the mean. Data points with a Z-score less than -3 or greater than 3 are considered as outliers. 
+We apply this check to the columns that cause doubts.
+```{r}
+sd(Auto_claims$total_claim_amount)
+```
+
+```{r}
+z <- abs(scale(Auto_claims$policy_annual_premium))
+outliers <- Auto_claims$policy_annual_premium[which(z > 3)]
+outliers
+```
+
+Here we see that in fact, according to the test there are some outliers, but are these values normal?
+
+This situation could be considered a normal range for many types of car insurance policies. It is important to keep in mind that the cost of car insurance can be influenced by many factors, such as the make and model of the car, the driver's age, location, driving record and level of coverage.
+
+```{r}
+z <- abs(scale(Auto_claims$umbrella_limit))
+outliers <- Auto_claims$umbrella_limit[which(z > 3)]
+outliers
+```
+The umbrella limits typically range from $1,000,000 to $10,000,000, but there are cases when one might not need this type of insurance at all and therefore the values of 0 that we have in our dataset are normal as well.
+ 
+A very high umbrella limit of $10,000,000, for example, is not necessarily abnormal. It may be necessary for some individuals or businesses that have a high level of assets or potential liability exposure, such as large companies or people with high net worth.
+ 
+Additionally, I checked using a boxplot the capital gains distribution and it seems to have no outliers.
+
+```{r}
+library(ggplot2)
+
+ggplot(Auto_claims, aes(x = 1, y = capital.gains)) +
+  geom_boxplot(width = 0.5, fill = "salmon", color = "black") +
+  theme_classic() +
+  theme(
+    axis.line.x = element_line(color = "black", size = 1),
+    axis.line.y = element_line(color = "black", size = 1),
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 14),
+    plot.title = element_text(size = 18, hjust = 0.5)
+  ) +
+  ggtitle("Boxplot of Capital Gains column")
+
+```
+Based on these explanations, I decided to not remove any values from my data.
+Now it's time to use some visualizations to have a better idea of the data.
+
+```{r}
+library(ggplot2)
+x=Auto_claims$total_claim_amount
+y=Auto_claims$collision_type
+Car_brand=Auto_claims$auto_make
+
+ggplot(Auto_claims, aes(x=factor(y), y=x)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(aes(color = Car_brand), width = 0.1, height = 0, alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  xlab("Collision Type") +
+  ylab("Total Claim Amount") +
+  ggtitle("The distribution of the amount of the claims per collision type ")+
+  theme_minimal() 
+
+```
+
+```{r}
+ggplot(Auto_claims, aes(x = collision_type, y = policy_annual_premium, fill = insured_sex)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), scale = "width", width = 0.8) +
+  geom_boxplot(width = 0.1, fill = "white", color = "black") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    plot.title = element_text(size = 16, hjust = 0.5)
+  ) +
+  scale_fill_brewer(palette = "berlin") +
+  ggtitle("Distribution of Annual Premium per Collision Type colored by Gender") +
+  xlab("Collision Type") +
+  ylab("Annual Premium")
+
+```
+```{r}
+ggplot(Auto_claims, aes(x = "", y = incident_severity, fill=incident_severity)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  ggtitle("Ratio of incident severity") +
+  xlab("") +
+  ylab("")
+
+```
+## The model
+
+First we split te data into training and testing set. In the above code we specify that we want to split regarding total_claim_amount which is the response variable in this case.
+
+
+```{r}
+library(caret)
+set.seed(123)
+
+## Split the data so that we use 70% of it for training
+train_index <- createDataPartition(y=Auto_claims$total_claim_amount, p=0.7, list=FALSE)
+
+## Subset the data
+training_set <- Auto_claims[train_index, ]
+testing_set <- Auto_claims[-train_index, ]
+```
+
+For the code coming afterwards, it is important that in the last column we have the variable we want to predict, for this I ran the following code from the dplyr package. 
+
+```{r}
+library(dplyr)
+training_set <- training_set %>%
+  select(-total_claim_amount, everything())
+```
+
+I double check if the response variable is really at the end: 
+
+```{r}
+training_set
+```
+
+I am planning to fit a glmnet model and for this all our columns need to be numeric. I use the following code to convert them all:
+
+```{r}
+training_set[] <- lapply(training_set, as.numeric)  #in order to run glmnet, we need to have numeric values
+```
+
+I decided to fit the glmnet by firstly fitting a cross-validation model and choosing the best lambda from it and then using this lambda to fit the glmnet model. 
+
+```{r}
+library(glmnet)
+fit_cv <- cv.glmnet(x = as.matrix(training_set[, -36]), y = log(training_set[, 36]), alpha = 1, nfolds = 5)
+```
+
+```{r}
+plot(fit_cv)
+```
+As displayed in the plot, along with the upper and lower standard deviation curves, this depicts the cross-validation curve (red dotted line) along the $lambda$ series (error bars). The vertical dotted lines represent two special values along the $lambda$ sequence. "lambda.min" is the value of "lambda" that produces the lowest mean cross-validated error. In contrast, "lambda.1se" is the value of "lambda" that produces the most regularized model with a cross-validated error that is within one standard error of the minimum. 
+
+Let's check these values precisely:
+
+```{r}
+fit_cv$lambda.min
+fit_cv$lambda.1se
+```
+ Now to fit my glmnet I would use some $\lambda$ between `lambda.min` and `lambda.1se`.
+ 
+The lambda.min value is likely to result in a model with a high complexity and a low bias, which can lead to overfitting. On the other hand, lambda.1se value is likely to result in a model with a low complexity and a high bias, which can lead to underfitting. By choosing a value between lambda.min and lambda.1se, you can aim for a balance between bias and variance, resulting in a model that generalizes well to unseen data.
+
+Another consideration is the risk of overfitting, the lambda.min is more likely to overfit the model because it has the smallest mean cross-validated error and is more complex. the lambda.1se is less likely to overfit the model because it has a slightly higher mean cross-validated error and is less complex.
+
+The value in between I would choose is 0.026
+ 
+```{r}
+fit <- glmnet(x = as.matrix(training_set[, -36]), y = log(training_set[, 36]), alpha = 1, lambda = 0.026, standardize = TRUE)
+
+```
+
+```{r}
+library(dplyr)
+testing_set <- testing_set %>%
+  select(-total_claim_amount, everything())
+```
+
+```{r}
+testing_set[] <- lapply(testing_set, as.numeric)
+```
+
+```{r}
+testing_set
+```
+
+```{r}
+# Make predictions on the test set
+predictions <- predict(fit, as.matrix(testing_set[, -36]))
+```
+
+We use different metrics to evaluate the performace of our model as seen below: 
+```{r}
+library(Metrics)
+rmse <- rmse(testing_set$total_claim_amount, exp(predictions))
+rmse
+```
+
+
+
+```{r}
+
+```
+
